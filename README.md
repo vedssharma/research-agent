@@ -1,36 +1,82 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Research Agent
 
-## Getting Started
+An autonomous AI research assistant that decomposes complex questions into sub-tasks, searches the web and academic papers, builds a knowledge graph from discovered information, and synthesizes a final answer — all streamed back to you in real time.
 
-First, run the development server:
+Built with **Next.js 16**, **Vercel AI SDK v6**, and **LangGraph.js**.
+
+## How it works
+
+When you ask a question, a multi-node LangGraph agent runs in the background:
+
+```
+planner → researcher → kg_builder → (loop until done) → synthesizer
+```
+
+1. **Planner** — Decomposes your question into focused sub-tasks (web searches, paper searches, or deep dives).
+2. **Researcher** — Executes each sub-task using Tavily web search, Semantic Scholar / arXiv paper search, and an article content extractor.
+3. **Knowledge Graph Builder** — Extracts entities and relationships from findings into an in-memory knowledge graph.
+4. **Synthesizer** — Serializes the knowledge graph and generates a final, cited answer.
+
+The UI shows a split-pane view: the chat on the left, and a live research panel (task status, sources, timeline) + interactive knowledge graph on the right.
+
+## Prerequisites
+
+- Node.js 18+
+- An OpenAI **or** Anthropic API key
+- A [Tavily](https://tavily.com) API key (for web search)
+
+## Setup
+
+**1. Clone and install dependencies**
+
+```bash
+git clone <repo-url>
+cd research-agent
+npm install
+```
+
+**2. Configure environment variables**
+
+Create a `.env.local` file at the project root:
+
+```bash
+# Choose your LLM provider: "openai" (default) or "anthropic"
+MODEL_PROVIDER=openai
+
+# Add the key for whichever provider you chose
+OPENAI_API_KEY=sk-...
+# ANTHROPIC_API_KEY=sk-ant-...
+
+# Required for web search
+TAVILY_API_KEY=tvly-...
+```
+
+**3. Start the development server**
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Available scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | Description |
+|---|---|
+| `npm run dev` | Start dev server with Turbopack |
+| `npm run build` | Production build + TypeScript type check |
+| `npm run lint` | Run ESLint |
 
-## Learn More
+## Tech stack
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| AI orchestration | LangGraph.js |
+| Streaming | Vercel AI SDK v6 (`@ai-sdk/react`, `@ai-sdk/langchain`) |
+| LLM providers | OpenAI or Anthropic (switchable via env var) |
+| Web search | Tavily |
+| Paper search | Semantic Scholar + arXiv REST APIs |
+| Content extraction | `@extractus/article-extractor` |
+| Knowledge graph | Custom in-memory graph with canvas-based force-directed viewer |
+| Styling | Tailwind CSS v4 |
