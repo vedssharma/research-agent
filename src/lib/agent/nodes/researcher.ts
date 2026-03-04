@@ -9,28 +9,18 @@ function getTools() {
   return [getWebSearchTool(), paperSearchTool, contentExtractorTool];
 }
 
-export async function researcherNode(
-  state: AgentStateType
-): Promise<Partial<AgentStateType>> {
-  const pendingTasks = state.subTasks.filter((t) => t.status === "pending");
-  if (pendingTasks.length === 0) {
-    return { currentPhase: "researching" };
-  }
-
-  const currentTask = pendingTasks[0];
+async function researchTask(task: SubTask): Promise<SubTask> {
   const model = getModel();
   const tools = getTools();
   const modelWithTools = model.bindTools(tools);
 
-  // Mark task as in-progress
-  const updatedTask: SubTask = { ...currentTask, status: "in_progress", findings: [] };
+  const updatedTask: SubTask = { ...task, status: "in_progress", findings: [] };
 
   try {
-    // First call: let the LLM decide which tools to use
     const response = await modelWithTools.invoke([
       new SystemMessage(RESEARCHER_PROMPT),
       new HumanMessage(
-        `Research this sub-task: "${currentTask.query}"\nTask type: ${currentTask.type}`
+        `Research this sub-task: "${task.query}"\nTask type: ${task.type}`
       ),
     ]);
 
@@ -47,7 +37,6 @@ export async function researcherNode(
         const result = await (tool as any).invoke(toolCall.args);
         const resultStr = typeof result === "string" ? result : JSON.stringify(result);
 
-        // Parse results into findings
         const sourceType: ResearchFinding["sourceType"] =
           toolCall.name === "search_papers"
             ? "paper"
@@ -67,7 +56,6 @@ export async function researcherNode(
       }
     }
 
-    // If no tool calls were made, use the text response as a finding
     if (toolCalls.length === 0 && typeof response.content === "string") {
       findings.push({
         source: "llm",
@@ -84,9 +72,23 @@ export async function researcherNode(
     updatedTask.status = "failed";
   }
 
+  return updatedTask;
+}
+
+export async function researcherNode(
+  state: AgentStateType
+): Promise<Partial<AgentStateType>> {
+  const pendingTasks = state.subTasks.filter((t) => t.status === "pending");
+  if (pendingTasks.length === 0) {
+    return { currentPhase: "researching" };
+  }
+
+  // Research all pending tasks simultaneously
+  const completedTasks = await Promise.all(pendingTasks.map(researchTask));
+
   return {
-    subTasks: [updatedTask],
+    subTasks: completedTasks,
     currentPhase: "researching",
-    currentTaskIndex: state.currentTaskIndex + 1,
+    currentTaskIndex: state.currentTaskIndex + pendingTasks.length,
   };
 }

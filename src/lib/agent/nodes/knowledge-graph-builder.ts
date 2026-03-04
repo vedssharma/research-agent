@@ -3,7 +3,9 @@ import { getModel } from "@/lib/utils/model";
 import { KG_BUILDER_PROMPT } from "@/lib/utils/prompts";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { AgentStateType } from "../state";
+import type { SubTask } from "@/types";
 import type { KnowledgeGraphData } from "@/lib/knowledge-graph/types";
+import { mergeNodes, mergeEdges } from "@/lib/knowledge-graph/operations";
 
 const kgExtractionSchema = z.object({
   nodes: z.array(
@@ -33,21 +35,8 @@ const kgExtractionSchema = z.object({
   ),
 });
 
-export async function knowledgeGraphBuilderNode(
-  state: AgentStateType
-): Promise<Partial<AgentStateType>> {
-  // Find the most recently completed task with findings
-  const completedTasks = state.subTasks.filter(
-    (t) => t.status === "completed" && t.findings.length > 0
-  );
-
-  if (completedTasks.length === 0) {
-    return { currentPhase: "building_kg" };
-  }
-
-  // Get findings from the latest completed task
-  const latestTask = completedTasks[completedTasks.length - 1];
-  const findingsText = latestTask.findings
+async function extractKGFromTask(task: SubTask): Promise<KnowledgeGraphData> {
+  const findingsText = task.findings
     .map((f) => `### ${f.title}\nSource: ${f.source}\n${f.content}`)
     .join("\n\n");
 
@@ -64,31 +53,53 @@ export async function knowledgeGraphBuilderNode(
   const response = await modelWithTools.invoke([
     new SystemMessage(KG_BUILDER_PROMPT),
     new HumanMessage(
-      `Extract entities and relationships from these research findings about "${latestTask.query}":\n\n${findingsText}`
+      `Extract entities and relationships from these research findings about "${task.query}":\n\n${findingsText}`
     ),
   ]);
 
   const toolCalls = response.tool_calls || [];
-  const kgCall = toolCalls.find(
-    (tc) => tc.name === "extract_knowledge_graph"
-  );
+  const kgCall = toolCalls.find((tc) => tc.name === "extract_knowledge_graph");
 
   if (kgCall) {
-    const kgData: KnowledgeGraphData = {
+    return {
       nodes: (kgCall.args.nodes || []).map(
         (n: { id: string; label: string; type: string; properties: Record<string, unknown> }) => ({
           ...n,
-          sources: [latestTask.id],
+          sources: [task.id],
         })
       ),
       edges: kgCall.args.edges || [],
     };
-
-    return {
-      knowledgeGraph: kgData,
-      currentPhase: "building_kg",
-    };
   }
 
-  return { currentPhase: "building_kg" };
+  return { nodes: [], edges: [] };
+}
+
+export async function knowledgeGraphBuilderNode(
+  state: AgentStateType
+): Promise<Partial<AgentStateType>> {
+  const completedTasks = state.subTasks.filter(
+    (t) => t.status === "completed" && t.findings.length > 0
+  );
+
+  if (completedTasks.length === 0) {
+    return { currentPhase: "building_kg" };
+  }
+
+  // Extract KG from all completed tasks simultaneously
+  const kgResults = await Promise.all(completedTasks.map(extractKGFromTask));
+
+  // Merge all extracted KG data into one
+  const mergedKG = kgResults.reduce<KnowledgeGraphData>(
+    (acc, kg) => ({
+      nodes: mergeNodes(acc.nodes, kg.nodes),
+      edges: mergeEdges(acc.edges, kg.edges),
+    }),
+    { nodes: [], edges: [] }
+  );
+
+  return {
+    knowledgeGraph: mergedKG,
+    currentPhase: "building_kg",
+  };
 }
